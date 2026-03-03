@@ -183,7 +183,7 @@ pub fn export_typescript(input: TokenStream) -> TokenStream {
                     let spl = s.split_once(".");
 
                     if let Some((left, _)) = spl {
-                        format!("\t{left}")
+                        format!("\t{left} = \"{left}\"")
                     } else {
                         "".to_string()
                     }
