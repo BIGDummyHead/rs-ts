@@ -6,7 +6,7 @@ Generates a `types` folder and exports each exported type as `name.ts` into the 
 
 ## Usage
 
-```
+```rust
  #[derive(ExportTypescript)]
  struct User {
      pub uid: i32;
