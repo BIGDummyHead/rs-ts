@@ -9,9 +9,10 @@ Generates a `types` folder and exports each exported type as `name.ts` into the 
 ```rust
  #[derive(ExportTypescript)]
  struct User {
-     pub uid: i32;
-     pub display_name: string;
-     pub role: Role;
+     pub uid: i32,
+     pub display_name: string,
+     pub role: Role,
+     pub meta: Vec<String>
  }
 
  #[derive(ExportTypescript)]
