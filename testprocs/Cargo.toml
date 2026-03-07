@@ -1,0 +1,7 @@
+[package]
+name = "testprocs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+typescripted = { path = "../" }

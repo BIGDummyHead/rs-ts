@@ -20,12 +20,13 @@ use syn::{Data, DeriveInput, parse_macro_input};
 ///
 /// Usage:
 ///
-/// ```
+/// ```rs
 /// #[derive(ExportTypescript)]
 /// struct User {
-///     pub uid: i32;
-///     pub display_name: string;
-///     pub role: Role;
+///     pub uid: i32,
+///     pub display_name: string,
+///     pub role: Role,
+///     pub meta: Vec<String>
 /// }
 ///
 /// #[derive(ExportTypescript)]
@@ -39,13 +40,14 @@ use syn::{Data, DeriveInput, parse_macro_input};
 ///
 /// User.ts:
 ///
-/// ```
+/// ```ts
 /// import Role from './Role.ts';
 ///
 /// interface User {
 ///     uid: number;
 ///     display_name: string;
 ///     role: Role;
+///     meta: Array<string>
 /// }
 ///
 /// export default User;
@@ -54,10 +56,10 @@ use syn::{Data, DeriveInput, parse_macro_input};
 ///
 /// Role.ts:
 ///
-/// ```
+/// ```ts
 /// enum Role {
-///     User,
-///     Admin
+///     User = "User",
+///     Admin = "Admin"
 /// }
 ///
 /// export default Role;
@@ -89,13 +91,9 @@ pub fn export_typescript(input: TokenStream) -> TokenStream {
     type_converter.insert("()", "void");
     type_converter.insert("Option", "any");
     type_converter.insert("Result", "any");
-    type_converter.insert("HashMap", "object");
+    type_converter.insert("HashMap", "Record");
     type_converter.insert("BTreeMap", "object");
-
-    let mut generic_type_converter = HashMap::new();
-    generic_type_converter.insert("Vec", "[]");
-
-    let get_accepted_type = |ty_name: &str| type_converter.get(ty_name);
+    type_converter.insert("Vec", "Array");
 
     // a maps each field into a Vec<String> containing their field names.
     let mut field_data_string: String = match input.data {
@@ -143,48 +141,150 @@ pub fn export_typescript(input: TokenStream) -> TokenStream {
 
                 let (name, ty) = field_type.unwrap();
 
-                fn rem_last_two<'a>(value: &'a str) -> &'a str {
-                    let mut chars = value.chars();
-                    chars.next_back();
-                    chars.next_back();
-                    chars.as_str()
+                fn take_generic(whole_type: &str) -> (String, Option<String>) {
+                    //replace each space in the type to be compact
+                    // Vec < String > -> Vec<String>
+                    let whole_type = whole_type.replace(" ", "");
+
+                    let chars = whole_type.chars();
+
+                    let mut inner_type = String::new();
+
+                    //the owner type
+                    let mut owner_type = String::new();
+
+                    let mut generics_encountered = 0;
+                    for ch in chars {
+                        // Vec< HashMap< String, Vec< String > > >
+                        //   -^       -^           -^
+                        if ch == '<' {
+                            // add the '<' IF we have encountered another '<' before.
+                            if generics_encountered > 0 {
+                                inner_type.push(ch);
+                            }
+
+                            generics_encountered += 1;
+                            continue;
+                        }
+
+                        // we can ignore characters for example:
+                        // Vec< HashMap< String, Vec< String > > >
+                        //-^^^^                               -^-^
+                        if generics_encountered == 0 {
+                            owner_type.push(ch); //add this character to the owner...
+                            continue;
+                        }
+
+                        //indicate that the wrapper has ended
+                        if ch == '>' {
+                            generics_encountered -= 1;
+
+                            if generics_encountered == 0 {
+                                break;
+                            }
+                        }
+
+                        //add char
+                        inner_type.push(ch);
+                    }
+
+                    if inner_type.is_empty() {
+                        (owner_type, None)
+                    } else {
+                        (owner_type, Some(inner_type))
+                    }
                 }
 
-                //transforms a generic single level type: Vec<String> -> (Vec, String)
-                let transform_type = |s: String| {
-                    // Vec < String >
-                    s.split_once("<").map(|(owner_ty, inner_unclean)| {
-                        let inner = rem_last_two(inner_unclean);
+                //cleans the inner generic (final), maps to a formal type conversion
+                fn clean_final_inner(type_converter: &HashMap<&str, &str>, inner: &str) -> String {
+                    let fallback_type = |s: &str| type_converter.get(s).unwrap_or(&s).to_string();
 
-                        (owner_ty.trim().to_string(), inner.trim().to_string())
-                    })
-                };
+                    //there is nothing to convert it is a single type
+                    if !inner.contains(",") {
+                        return fallback_type(inner);
+                    }
+
+                    let inner = inner.to_string();
+
+                    //the current type encountered...
+                    let mut current_ty = String::new();
+
+                    //our final output
+                    let mut output = String::new();
+
+                    for ch in inner.chars() {
+                        //push (...)
+                        if ch == '(' || ch == ')'{
+                            continue;
+                        }
+
+                        //type is done
+                        if ch == ',' {
+                            let ty = fallback_type(current_ty.as_str());
+
+                            //reset the string
+                            current_ty = String::new();
+
+                            //converted type
+                            output.push_str(&ty);
+                            //add comma and space
+                            output.push(ch);
+                            output.push(' ');
+
+                            continue;
+                        }
+
+                        //push the ch into the current type
+                        current_ty.push(ch);
+                    }
+
+                    let current_ty = fallback_type(&current_ty);
+
+                    output.push_str(&current_ty);
+
+                    output
+                }
 
                 let formal_name = if ty.contains("<") {
-                    //transform the generic type to be a owner/inner type realtionship.
-                    //then map the inner type to be an accepeted type or use the name
-                    //then map the owner into a formatted string for ex. Vec<String> transforms into string[]
-                    //always fail if the generic cannot be convereted properly.
-                    let (owner, inner) = transform_type(ty.to_string())
-                        .map(|(owner, inner)| {
-                            let inner_ty = get_accepted_type(&inner)
-                                .map(|s| s.to_string())
-                                .unwrap_or(inner);
+                    let mut created_name = String::new();
 
-                            (owner, inner_ty)
-                        })
-                        .expect("could not convert generic");
+                    let mut ty = ty.to_string();
 
-                    let name: Option<String> = match owner.as_str() {
-                        "Vec" => Some(format!("{inner}[]")),
-                        _ => None,
-                    };
+                    let mut addt_enders = 0;
 
-                    name.expect("unsupported generic:\r\n\t- owner {owner}\r\n\t- inner {inner}")
+                    while let (owner, Some(inner)) = take_generic(&ty) {
+                        let owner: String = type_converter
+                            .get(owner.as_str())
+                            .map(|t| t.to_string())
+                            .unwrap_or(owner);
+
+                        //add the owner name (converted) to the whole name
+                        created_name.push_str(&owner);
+                        created_name.push_str("<");
+
+                        //the inner given is also generic
+                        if inner.contains("<") {
+                            ty = inner;
+                            addt_enders += 1;
+                            continue;
+                        } else {
+                            let inner = clean_final_inner(&type_converter, &inner);
+                            //inner needs to be cleaned
+                            created_name.push_str(&inner);
+                            created_name.push_str(">");
+                            break;
+                        }
+                    }
+
+                    for _ in 0..addt_enders {
+                        created_name.push('>');
+                    }
+
+                    created_name
                 } else {
                     // ? handle non generics
                     //convert our unsanitized Rust type to TypeScript.
-                    let non_generic_name = if let Some(formal) = get_accepted_type(ty) {
+                    let non_generic_name = if let Some(formal) = type_converter.get(ty) {
                         formal.to_string()
                     } else {
                         //ty Vec < String >
