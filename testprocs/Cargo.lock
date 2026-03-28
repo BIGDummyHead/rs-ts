@@ -21,6 +21,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rs-ts"
+version = "0.1.0"
+dependencies = [
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "syn"
 version = "2.0.117"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -35,16 +43,7 @@ dependencies = [
 name = "testprocs"
 version = "0.1.0"
 dependencies = [
- "typescripted",
-]
-
-[[package]]
-name = "typescripted"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
+ "rs-ts",
 ]
 
 [[package]]

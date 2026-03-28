@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use typescripted::ExportTypescript;
+use rs_ts::ExportTypescript;
 
 #[allow(dead_code)]
 #[derive(ExportTypescript)]
@@ -8,6 +8,7 @@ pub struct User {
     pub name: String,
     pub age: i32,
     pub people: Vec<Vec<Vec<Vec<Vec<HashMap<String, i32>>>>>>,
+    pub phone: Option<String>
 }
 
 #[allow(dead_code)]
@@ -26,6 +27,10 @@ pub struct SuperUser {
     pub roles: Roles,
     pub meta: Vec<String>,
 }
+
+#[allow(dead_code)]
+//#[derive(ExportTypescript)]
+pub struct Shallow(String, i32);
 
 #[cfg(test)]
 mod tests {
@@ -65,15 +70,35 @@ mod tests {
         fs_result.unwrap()
     }
 
+    //#[test]
+    #[allow(dead_code)]
+    fn check_shallow_output() {
+        let rh_ts_code = read_file("./types/Shallow.ts");
+
+        let lh_ts_code = r#"
+type Shallow = string;
+
+export default Shallow;
+        "#;
+
+        assert!(
+            do_comp(&rh_ts_code, lh_ts_code),
+            "user did not match comparison"
+        );
+    }
+
     #[test]
     fn check_user_output() {
         let rh_ts_code = read_file("./types/User.ts");
 
         let lh_ts_code = r#"
+import Nullable from './Nullable';
+
 interface User { 
 	name: string;
 	age: number;
 	people: Array<Array<Array<Array<Array<Record<string, number>>>>>>;
+	phone: Nullable<String>;
 }
 
 export default User

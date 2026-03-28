@@ -6,6 +6,7 @@ use std::{
 
 use proc_macro::TokenStream;
 use quote::quote;
+use std::rc::Rc;
 use syn::{Data, DeriveInput, parse_macro_input};
 
 /// # Export TypeScript
@@ -66,38 +67,97 @@ use syn::{Data, DeriveInput, parse_macro_input};
 /// ```
 #[proc_macro_derive(ExportTypescript)]
 pub fn export_typescript(input: TokenStream) -> TokenStream {
+    type TypeConverter = HashMap<&'static str, Rc<TypeKit>>;
+
+    #[derive(Debug)]
+    struct ImportData {
+        type_name: String,
+        file_name: String,
+    }
+
+    impl ImportData {
+        fn as_string(&self) -> String {
+            format!("import {} from './{}';", self.type_name, self.file_name)
+        }
+    }
+
+    #[derive(Debug)]
+    struct TypeKit {
+        name: String,
+        import: Option<ImportData>,
+    }
+
+    impl TypeKit {
+        fn no_import(name: &str) -> TypeKit {
+            TypeKit {
+                name: name.to_string(),
+                import: None,
+            }
+        }
+
+        fn import(name: &str, data: ImportData) -> TypeKit {
+            TypeKit {
+                name: name.to_string(),
+                import: Some(data),
+            }
+        }
+    }
+
     let input = parse_macro_input!(input as DeriveInput);
 
     // Converter for Rust basic types to TypeScript types.
     // Custom types can be still be used as they rely on other interfaces.
-    let mut type_converter = HashMap::new();
-    type_converter.insert("i8", "number");
-    type_converter.insert("i16", "number");
-    type_converter.insert("i32", "number");
-    type_converter.insert("i64", "number");
-    type_converter.insert("i128", "number");
-    type_converter.insert("isize", "number");
-    type_converter.insert("u8", "number");
-    type_converter.insert("u16", "number");
-    type_converter.insert("u32", "number");
-    type_converter.insert("u64", "number");
-    type_converter.insert("u128", "number");
-    type_converter.insert("usize", "number");
-    type_converter.insert("f32", "number");
-    type_converter.insert("f64", "number");
-    type_converter.insert("bool", "boolean");
-    type_converter.insert("String", "string");
-    type_converter.insert("str", "string");
-    type_converter.insert("()", "void");
-    type_converter.insert("Option", "any");
-    type_converter.insert("Result", "any");
-    type_converter.insert("HashMap", "Record");
-    type_converter.insert("BTreeMap", "object");
-    type_converter.insert("Vec", "Array");
+
+    //default import types
+    let number = Rc::new(TypeKit::no_import("number"));
+    let bool_kit = Rc::new(TypeKit::no_import("boolean"));
+    let string = Rc::new(TypeKit::no_import("string"));
+    let void = Rc::new(TypeKit::no_import("void"));
+    let record = Rc::new(TypeKit::no_import("Record"));
+    let object = Rc::new(TypeKit::no_import("Object"));
+    let any = Rc::new(TypeKit::no_import("any"));
+    let array = Rc::new(TypeKit::no_import("Array"));
+
+    //import types
+    // import {type_name: Nullable} from "./{file_name: Nullable}";
+
+    let nullable = Rc::new(TypeKit::import(
+        "Nullable",
+        ImportData {
+            type_name: String::from("Nullable"),
+            file_name: String::from("Nullable"),
+        },
+    ));
+
+    let mut type_converter: TypeConverter = HashMap::new();
+    type_converter.insert("i8", number.clone());
+    type_converter.insert("i16", number.clone());
+    type_converter.insert("i32", number.clone());
+    type_converter.insert("i64", number.clone());
+    type_converter.insert("i128", number.clone());
+    type_converter.insert("isize", number.clone());
+    type_converter.insert("u8", number.clone());
+    type_converter.insert("u16", number.clone());
+    type_converter.insert("u32", number.clone());
+    type_converter.insert("u64", number.clone());
+    type_converter.insert("u128", number.clone());
+    type_converter.insert("usize", number.clone());
+    type_converter.insert("f32", number.clone());
+    type_converter.insert("f64", number.clone());
+    type_converter.insert("bool", bool_kit.clone());
+    type_converter.insert("String", string.clone());
+    type_converter.insert("str", string.clone());
+    type_converter.insert("()", void.clone());
+    type_converter.insert("Result", any.clone());
+    type_converter.insert("HashMap", record.clone());
+    type_converter.insert("BTreeMap", object.clone());
+    type_converter.insert("Vec", array.clone());
+    type_converter.insert("Option", nullable.clone());
 
     // a maps each field into a Vec<String> containing their field names.
     let mut field_data_string: String = match input.data {
         Data::Struct(ds) => {
+
             //export interface NAME {
             let mut interface_export_output: String = "interface ".to_string();
             interface_export_output.push_str(input.ident.to_string().as_str());
@@ -110,8 +170,9 @@ pub fn export_typescript(input: TokenStream) -> TokenStream {
 
             let mut output_types: Vec<String> = Vec::new();
             for field_type in field_types {
+
                 //empty or non public
-                if field_type.is_empty() || !field_type.contains("pub") {
+                if !field_type.contains("pub") || field_type.is_empty() {
                     continue;
                 }
 
@@ -139,7 +200,7 @@ pub fn export_typescript(input: TokenStream) -> TokenStream {
                     continue;
                 }
 
-                let (name, ty) = field_type.unwrap();
+                let (name, full_type_name) = field_type.unwrap();
 
                 fn take_generic(whole_type: &str) -> (String, Option<String>) {
                     //replace each space in the type to be compact
@@ -196,8 +257,13 @@ pub fn export_typescript(input: TokenStream) -> TokenStream {
                 }
 
                 //cleans the inner generic (final), maps to a formal type conversion
-                fn clean_final_inner(type_converter: &HashMap<&str, &str>, inner: &str) -> String {
-                    let fallback_type = |s: &str| type_converter.get(s).unwrap_or(&s).to_string();
+                fn clean_final_inner(type_converter: &TypeConverter, inner: &str) -> String {
+                    let fallback_type = |type_name: &str| {
+                        type_converter
+                            .get(type_name)
+                            .map(|tk| tk.name.to_string())
+                            .unwrap_or(type_name.to_string())
+                    };
 
                     //there is nothing to convert it is a single type
                     if !inner.contains(",") {
@@ -214,7 +280,7 @@ pub fn export_typescript(input: TokenStream) -> TokenStream {
 
                     for ch in inner.chars() {
                         //push (...)
-                        if ch == '(' || ch == ')'{
+                        if ch == '(' || ch == ')' {
                             continue;
                         }
 
@@ -245,18 +311,27 @@ pub fn export_typescript(input: TokenStream) -> TokenStream {
                     output
                 }
 
-                let formal_name = if ty.contains("<") {
+                // ! Checks if the type name is generic
+                let formal_type_name = if full_type_name.contains("<") {
                     let mut created_name = String::new();
 
-                    let mut ty = ty.to_string();
+                    let mut ty = full_type_name.to_string();
 
                     let mut addt_enders = 0;
 
                     while let (owner, Some(inner)) = take_generic(&ty) {
-                        let owner: String = type_converter
-                            .get(owner.as_str())
-                            .map(|t| t.to_string())
-                            .unwrap_or(owner);
+                        let type_kit = type_converter.get(owner.as_str());
+
+                        let owner: String = type_kit.map(|t| t.name.to_string()).unwrap_or(owner);
+
+                        if let Some(kit) = type_kit {
+                            if let Some(kit_import) = &kit.import {
+                                imports.insert(
+                                    kit_import.type_name.clone(),
+                                    kit_import.as_string(),
+                                );
+                            }
+                        }
 
                         //add the owner name (converted) to the whole name
                         created_name.push_str(&owner);
@@ -284,20 +359,29 @@ pub fn export_typescript(input: TokenStream) -> TokenStream {
                 } else {
                     // ? handle non generics
                     //convert our unsanitized Rust type to TypeScript.
-                    let non_generic_name = if let Some(formal) = type_converter.get(ty) {
-                        formal.to_string()
-                    } else {
-                        //ty Vec < String >
-                        //import { X } from './X';
-                        let import_value = format!("import {} from './{}';", ty, ty);
-                        imports.insert(ty.to_string(), import_value);
+                    let non_generic_name =
+                        if let Some(type_kit) = type_converter.get(full_type_name) {
+                            if let Some(import_data) = &type_kit.import {
+                                imports.insert(full_type_name.to_string(), import_data.as_string());
+                            }
 
-                        ty.to_string()
-                    };
+                            type_kit.name.to_string()
+                        } else {
+                            //ty Vec < String >
+                            //import { X } from './X';
+                            let import_value = ImportData {
+                                type_name: full_type_name.to_string(),
+                                file_name: full_type_name.to_string(),
+                            };
+
+                            imports.insert(full_type_name.to_string(), import_value.as_string());
+
+                            full_type_name.to_string()
+                        };
                     non_generic_name
                 };
 
-                output_types.push(format!("\t{name}: {formal_name};"));
+                output_types.push(format!("\t{name}: {formal_type_name};"));
             }
 
             let output_types = output_types.join("\r\n");
@@ -365,14 +449,30 @@ pub fn export_typescript(input: TokenStream) -> TokenStream {
     field_data_string.push_str(&format!("{}", input.ident.to_string()));
     let output_data = field_data_string.into_bytes();
 
-    let path = format!("./types/{}.ts", input.ident.to_string());
+    let folder = "./types";
 
-    let _ = fs::create_dir("./types");
+    let created_type_path = format!("{folder}/{}.ts", input.ident.to_string());
 
-    File::create(&path)
-        .unwrap_or_else(|e| panic!("{e}, could not open"))
-        .write_all(&output_data)
-        .unwrap_or_else(|e| panic!("{e}, could not write"));
+    let _ = fs::create_dir(&folder);
+
+    let write_file = |file: &str, content: &[u8]| {
+        File::create(file)
+            .unwrap_or_else(|e| panic!("{e}, could not open"))
+            .write_all(content)
+            .unwrap_or_else(|e| panic!("{e}, could not write"));
+    };
+
+    write_file(&created_type_path, &output_data);
+
+    let default_file_collection = HashMap::from([(
+        "Nullable",
+        "//[NOTE]: This file was auto-generated for easier conversion of Option<T>\r\ntype Nullable<T> = T | null | undefined;\r\n\r\nexport default Nullable;",
+    )]);
+
+    for (file, content) in default_file_collection {
+        let full_path = format!("{folder}/{file}.ts");
+        write_file(&full_path, content.as_bytes());
+    }
 
     //do nothing.  data collected and wrote
     TokenStream::new()
