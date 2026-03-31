@@ -459,23 +459,23 @@ pub fn export_typescript(input: TokenStream) -> TokenStream {
 }
 
 /// # Export Shallow Type
-/// 
+///
 /// Exports a shallow struct into a type, in TypeScript.
-/// 
+///
 /// For example:
-/// 
+///
 /// ```
 /// use rs_ts::ExportShallowType;
 ///
 /// #[derive(ExportShallowType)]
 /// pub struct Name(String);
 /// ```
-/// 
+///
 /// Generated `Name.ts` in the `types` folder with the following content:
-/// 
+///
 /// ```ts
 /// type Name = string;
-/// 
+///
 /// export default Name;
 /// ```
 #[proc_macro_derive(ExportShallowType)]
@@ -500,10 +500,19 @@ pub fn export_shallow_type(input: TokenStream) -> TokenStream {
     let whole_field_ty = quote!(#first.ty).to_string();
 
     // the Type name : String
-    let field_type_name = whole_field_ty
+    let mut field_type_name = whole_field_ty
         .split_once(".")
         .and_then(|(type_name, _ext)| Some(type_name.trim()))
         .unwrap_or_else(|| panic!("could not obtain field type"));
+
+    //pub String for example
+    if field_type_name.contains("pub") {
+        let spl = field_type_name.split_once("pub").and_then(|(l, r)| {
+            Some(r.trim())
+        }).unwrap_or_else(|| panic!("could not obtain field type"));
+
+        field_type_name = spl;
+    }
 
     //output stream
     let mut output = String::new();
@@ -529,11 +538,11 @@ pub fn export_shallow_type(input: TokenStream) -> TokenStream {
 ///
 /// Applied to fields of a struct or enum that derives ExportTypeScript.
 ///
-/// Allows you to rename the identified field type to something else. 
+/// Allows you to rename the identified field type to something else.
 ///
 /// For example
 ///
-/// ``` 
+/// ```
 /// use rs_ts::ExportTypescript;
 ///
 /// pub struct ComplexType {}
@@ -546,7 +555,7 @@ pub fn export_shallow_type(input: TokenStream) -> TokenStream {
 /// }
 ///```
 ///
-/// The 'ComplexType' type will now be identified as a String type when parsed by the `ExportTypeScript` macro. Allowing for easy type conversion. 
+/// The 'ComplexType' type will now be identified as a String type when parsed by the `ExportTypeScript` macro. Allowing for easy type conversion.
 #[proc_macro_attribute]
 pub fn recognize_as(_attr: TokenStream, _input: TokenStream) -> TokenStream {
     TokenStream::new()
