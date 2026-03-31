@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use rs_ts::ExportTypescript;
+use rs_ts::{ExportShallowType, ExportTypescript, recognize_as};
 
 #[allow(dead_code)]
 #[derive(ExportTypescript)]
@@ -8,7 +8,7 @@ pub struct User {
     pub name: String,
     pub age: i32,
     pub people: Vec<Vec<Vec<Vec<Vec<HashMap<String, i32>>>>>>,
-    pub phone: Option<String>
+    pub phone: Option<String>,
 }
 
 #[allow(dead_code)]
@@ -19,18 +19,21 @@ pub enum Roles {
     SuperAdmin,
 }
 
+pub struct SomeComplexType {}
+
 #[allow(dead_code)]
 #[derive(ExportTypescript)]
 pub struct SuperUser {
-    pub name: String,
+    #[recognize_as("Shallow")]
+    pub name: SomeComplexType,
     pub age: i32,
     pub roles: Roles,
     pub meta: Vec<String>,
 }
 
 #[allow(dead_code)]
-//#[derive(ExportTypescript)]
-pub struct Shallow(String, i32);
+#[derive(ExportShallowType)]
+pub struct Shallow(String);
 
 #[cfg(test)]
 mod tests {
@@ -70,7 +73,7 @@ mod tests {
         fs_result.unwrap()
     }
 
-    //#[test]
+    #[test]
     #[allow(dead_code)]
     fn check_shallow_output() {
         let rh_ts_code = read_file("./types/Shallow.ts");
@@ -114,16 +117,19 @@ export default User
     fn check_super_user_output() {
         let rh_ts_code = read_file("./types/SuperUser.ts");
 
-        let lh_ts_code = r#"import Roles from './Roles';
+        let lh_ts_code = r#"
+import Roles from './Roles';
+import Shallow from './Shallow';
 
 interface SuperUser {
-	name: string;
+	name: Shallow;
 	age: number;
 	roles: Roles;
 	meta: Array<string>;
 }
 
-export default SuperUser"#;
+export default SuperUser
+"#;
 
         assert!(
             do_comp(&rh_ts_code, lh_ts_code),
