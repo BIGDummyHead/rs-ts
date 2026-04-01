@@ -198,10 +198,10 @@ fn get_formal_type_name(full_type_name: &str, imports: &mut HashMap<String, Stri
 
             let owner: String = type_kit.map(|t| t.name.to_string()).unwrap_or(owner);
 
-            if let Some(kit) = type_kit {
-                if let Some(kit_import) = &kit.import {
-                    imports.insert(kit_import.type_name.clone(), kit_import.as_string());
-                }
+            if let Some(kit) = type_kit
+                && let Some(kit_import) = &kit.import
+            {
+                imports.insert(kit_import.type_name.clone(), kit_import.as_string());
             }
 
             //add the owner name (converted) to the whole name
@@ -214,10 +214,25 @@ fn get_formal_type_name(full_type_name: &str, imports: &mut HashMap<String, Stri
                 additional_enders += 1;
                 continue;
             } else {
-                let inner = clean_final_inner(&TYPE_CONVERTER, &inner);
-                //inner needs to be cleaned
-                created_name.push_str(inner.trim());
+                let cleaned_inner = clean_final_inner(&TYPE_CONVERTER, &inner);
+                let inner_type_name = cleaned_inner.trim();
+
+                created_name.push_str(inner_type_name);
                 created_name.push_str(">");
+
+                for sep in inner.split(",") {
+                    if let None = TYPE_CONVERTER.get(sep) {
+                        //inner needs to be cleaned
+                        let data = ImportData {
+                            type_name: inner_type_name.to_string(),
+                            file_name: inner_type_name.to_string(),
+                        };
+
+                        imports.insert(inner_type_name.to_string(), data.as_string());
+                    }
+                }
+
+
                 break;
             }
         }
@@ -507,9 +522,10 @@ pub fn export_shallow_type(input: TokenStream) -> TokenStream {
 
     //pub String for example
     if field_type_name.contains("pub") {
-        let spl = field_type_name.split_once("pub").and_then(|(l, r)| {
-            Some(r.trim())
-        }).unwrap_or_else(|| panic!("could not obtain field type"));
+        let spl = field_type_name
+            .split_once("pub")
+            .and_then(|(_l, r)| Some(r.trim()))
+            .unwrap_or_else(|| panic!("could not obtain field type"));
 
         field_type_name = spl;
     }

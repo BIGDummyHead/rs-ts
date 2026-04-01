@@ -22,6 +22,10 @@ pub enum Roles {
 pub struct SomeComplexType {}
 
 #[allow(dead_code)]
+#[derive(ExportShallowType)]
+pub struct OtherType(String);
+
+#[allow(dead_code)]
 #[derive(ExportTypescript)]
 pub struct SuperUser {
     #[recognize_as("Shallow")]
@@ -29,6 +33,7 @@ pub struct SuperUser {
     pub age: i32,
     pub roles: Roles,
     pub meta: Vec<String>,
+    pub data: Vec<OtherType>,
 }
 
 #[allow(dead_code)]
@@ -41,10 +46,12 @@ mod tests {
 
     fn do_comp(lhs: &str, rhs: &str) -> bool {
         let cleaned = |s: &str| {
-            s.replace(" ", "")
+            s.trim()
+                .replace(" ", "")
                 .replace("\n", "")
                 .replace("\r", "")
                 .replace("\t", "")
+                .replace("\r\n", "")
                 .trim()
                 .to_lowercase()
         };
@@ -117,19 +124,19 @@ export default User
     fn check_super_user_output() {
         let rh_ts_code = read_file("./types/SuperUser.ts");
 
-        let lh_ts_code = r#"
+        let lh_ts_code = r#"import Shallow from './Shallow';
 import Roles from './Roles';
-import Shallow from './Shallow';
+import OtherType from './OtherType';
 
 interface SuperUser {
 	name: Shallow;
 	age: number;
 	roles: Roles;
 	meta: Array<string>;
+	data: Array<OtherType>;
 }
 
-export default SuperUser
-"#;
+export default SuperUser"#;
 
         assert!(
             do_comp(&rh_ts_code, lh_ts_code),
